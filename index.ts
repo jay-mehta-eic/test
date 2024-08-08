@@ -2,6 +2,7 @@ import express, { Application, Request, Response } from 'express';
 import * as dotenv from 'dotenv';
 import * as algosdk from 'algosdk';
 import pinataSdk from '@pinata/sdk';
+import cors from 'cors';
 import axios, { AxiosResponse } from 'axios';
 
 const pinata = new pinataSdk(process.env.PINATA_KEY, process.env.PINATA_SECRET_KEY);
@@ -14,16 +15,23 @@ const algodPort = process.env.ALGOD_PORT as string;
 const algodClient = new algosdk.Algodv2("", algodServer, algodPort);
 const app: Application = express();
 
+app.use(cors());
 app.use(express.json());
 
 app.post('/create-wallet', async (req: Request, res: Response) => {
     const account = await createWallet();
-
+    console.log("my account================", account)
     res.json(account);
 });
 
 app.post('/create-nft', async (req: Request, res: Response) => {
-    
+
+    const pinData = await pinDataToPinata(req.body.formData);
+    const nft = await createNFT(req.body.addr, pinData.IpfsHash,req.body.sk);
+
+    if (nft.status === true) {
+        return res.json(nft.tx_url);
+    }
 })
 
 app.listen(process.env.PORT, () => {
@@ -38,6 +46,7 @@ const createWallet = async () => {
 
 const fundAccount = async (receiver: string): Promise<boolean> => {
     const account = algosdk.mnemonicToSecretKey(process.env.MASTER_PRIVATE as string);
+    console.log("master account========", account);
 
     const suggestedParams = await algodClient.getTransactionParams().do();
 
@@ -58,6 +67,49 @@ const fundAccount = async (receiver: string): Promise<boolean> => {
         return true;
     } catch (error) {
         return false;
+    }
+}
+
+const createNFT = async (addres: string, pinataUrl: string, sk: Uint8Array) => {
+    const suggestedParams = await algodClient.getTransactionParams().do();
+
+    const asset_name = "ALGO-MOON";
+    const unit_name = "MOONS";
+
+    const nft_txn = algosdk.makeAssetCreateTxnWithSuggestedParamsFromObject({
+        from: addres,
+        suggestedParams,
+        defaultFrozen: false,
+        unitName: unit_name,
+        assetName: asset_name,
+        manager: addres,
+        reserve: addres,
+        freeze: addres,
+        clawback: addres,
+        assetURL: pinataUrl,
+        total: 1,
+        decimals: 0,
+    });
+
+    console.log("NFT txn", nft_txn);
+
+    const signed_nft_txn = nft_txn.signTxn(sk);
+
+    try {
+        await algodClient.sendRawTransaction(signed_nft_txn).do();
+
+        const result = await algosdk.waitForConfirmation(algodClient, nft_txn.txID().toString(), 3);
+        console.log("Result NFT  create", result);
+
+        const confirmRound = result['confirm-round'];
+
+        return {
+            status: true,
+            msg: `Transaction Successful in Round ${confirmRound}`,
+            tx_url: `https://testnet.explorer.perawallet.app/tx/${nft_txn.txID()}`
+        }
+    } catch (error: any) {
+        return { status: false, msg: error.message };
     }
 }
 
