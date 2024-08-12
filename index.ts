@@ -18,6 +18,10 @@ const app: Application = express();
 app.use(cors());
 app.use(express.json());
 
+app.get("/", (req: Request, res: Response) => {
+    res.send("Hello World");
+})
+
 app.post('/create-wallet', async (req: Request, res: Response) => {
     const account = await createWallet();
     console.log("my account================", account)
@@ -71,6 +75,7 @@ const fundAccount = async (receiver: string): Promise<boolean> => {
 }
 
 const createNFT = async (addres: string, pinataUrl: string, sk: Uint8Array) => {
+    console.log("sk....", sk);
     const suggestedParams = await algodClient.getTransactionParams().do();
 
     const asset_name = "ALGO-MOON";
@@ -93,15 +98,16 @@ const createNFT = async (addres: string, pinataUrl: string, sk: Uint8Array) => {
 
     console.log("NFT txn", nft_txn);
 
-    const signed_nft_txn = nft_txn.signTxn(sk);
+    const signed_nft_txn = nft_txn.signTxn(new Uint8Array(Object.values(sk)));
 
     try {
         await algodClient.sendRawTransaction(signed_nft_txn).do();
 
         const result = await algosdk.waitForConfirmation(algodClient, nft_txn.txID().toString(), 3);
-        console.log("Result NFT  create", result);
+        console.log("Result NFT  create", nft_txn.txID());
 
         const confirmRound = result['confirm-round'];
+
 
         return {
             status: true,
